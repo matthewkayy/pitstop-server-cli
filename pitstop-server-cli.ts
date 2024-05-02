@@ -2,12 +2,13 @@ import * as fs from "fs";
 import { DOMParser } from "xmldom";
 import * as xpath from "xpath";
 import * as execa from "execa";
-import * as registry from "registry-js";
+import * as regedit from "regedit";
 import * as os from "os";
 import * as _ from "lodash";
 import * as rimraf from "rimraf";
 import { toXML } from "jstoxml";
 import * as path from "path";
+import { error } from "console";
 
 /**
  * Export of the interface for the options when constructing a new instance of the PitStopServer class
@@ -690,11 +691,14 @@ export class PitStopServer {
     }
     if (os.platform().startsWith("win") == true) {
       //access the registry to find the path to PitStop Server
-      try {
-        PitStopServer.applicationPath = PitStopServer.findPitStopServerInRegistry();
-      } catch (error) {
+      PitStopServer.findPitStopServerInRegistry()
+      .then((resArg) => {
+        PitStopServer.applicationPath = resArg;
+      })
+      .catch((error) => {
         throw error;
-      }
+      });
+
       return PitStopServer.applicationPath;
     } else {
       //locate PitStop Server in the OSX Applications folder; the name of this folder is only localized in the Finder so it is /Applications regardless of the system language
@@ -726,23 +730,27 @@ export class PitStopServer {
    * Private static method to find the path to the PitStop Server CLI application in the Windows registry
    * @returns string
    */
-  private static findPitStopServerInRegistry = () => {
-    let values;
+  private static findPitStopServerInRegistry = async () => {
+    const registryKey: string = "SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\App Paths\\PitStop Server.exe";
+    let registryItems: { [key: string]: regedit.RegistryItem };
+
     try {
-      values = registry.enumerateValues(
-        registry.HKEY.HKEY_LOCAL_MACHINE,
-        "SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\App Paths\\PitStop Server.exe"
-      );
+      registryItems = await regedit.promisified.list([registryKey]);
     } catch (error) {
       throw error;
     }
-    let applicationPath = "";
-    for (let i = 0; i < values.length; i++) {
-      if ((values[i].name == "Path")) {
-        applicationPath = values[i].data;
-        break;
+    
+    let applicationPath: string = "";
+    
+    if (registryItems[registryKey] && registryItems[registryKey].exists) {
+      for (const value in registryItems[registryKey].values) {
+        if (value == "Path") {
+          applicationPath = registryItems[registryKey].values[value].value as string;
+          break;
+        }
       }
     }
+
     if (applicationPath == "") {
       throw new Error("No key found with the name Path under PitStop Server.exe in the registry");
     } else {
